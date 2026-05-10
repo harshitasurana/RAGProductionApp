@@ -1,0 +1,18 @@
+# Virtual Environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+
+# Environment variables
+.env
+
+# OS files
+.DS_Store
+
+# UV files
+.python-version
