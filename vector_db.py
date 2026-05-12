@@ -1,13 +1,12 @@
-from Demos.c_extension.setup import sources
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams,Distance,PointStruct
-from sqlalchemy.orm import collections
-from workflows.runtime.types import results
+
 
 
 class VectorDB:
     def __init__(self,url="http://127.0.0.1:6333",collection="docs",dim=3072):
-        self.client = QdrantClient(url=url,collection=collection,timeout=30)
+        self.client = QdrantClient(url=url,timeout=30)
+        self.collection = collection
         if not self.client.collection_exists(self.collection):
             self.client.create_collection(
                 collection_name=self.collection,
@@ -17,9 +16,12 @@ class VectorDB:
 
     def upsert(self,ids,vectors,payloads):
         points=[PointStruct(id=ids[i],vector=vectors[i],payload=payloads[i]) for i in range(len(ids))]
-        self.client.upsert(self.collection,points=points)
+        self.client.upsert(
+            collection_name=self.collection,
+            points=points
+        )
 
-    def search(self,query_vector,top_k,int=5):
+    def search(self,query_vector,top_k=5):
         results=self.client.search(
             collection_name=self.collection,
             query_vector=query_vector,
@@ -36,7 +38,7 @@ class VectorDB:
             source=payload.get('source',"")
             if text:
                 context.append(text)
-                sources.append(source)
+                sources.add(source)
 
 
         return {"context":context, "source":list(sources)}
