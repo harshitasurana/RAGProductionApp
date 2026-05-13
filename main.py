@@ -24,7 +24,7 @@ inngest_client= inngest.Inngest(
 
 @inngest_client.create_function(
     fn_id="RAG: Ingest PDF",
-    trigger=inngest.TriggerEvent(event="rag/inngest_pdf")
+    trigger=inngest.TriggerEvent(event="rag/ingest_pdf")
 )
 
 async def rag_ingest_pdf(ctx: inngest.Context):
