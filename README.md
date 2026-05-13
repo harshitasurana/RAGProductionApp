@@ -17,6 +17,16 @@ Making document understanding smarter, faster, and fully local ❤️
 
 ---
 
+# 🎥 Demo
+
+<p align="center">
+  <img src="assets/RAG.gif" width="900"/>
+  <br>
+  <b>Local RAG AI Assistant Demo</b>
+</p>
+
+---
+
 # 🧠 Problem Statement  
 
 Traditional document systems face several problems:
