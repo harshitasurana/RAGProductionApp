@@ -5,14 +5,15 @@ import inngest.fast_api
 from dotenv import load_dotenv
 import uuid
 import os
-import datetime
 from data_loader import load_and_chunk_pdf,embed_texts
 from vector_db import VectorDB
 from custom_types import RAGQueryResult, RAGSearchResults , RAGUpsertResults ,RAGChunkAndSrc
 
-
+import ollama
 
 load_dotenv()
+
+
 
 inngest_client= inngest.Inngest(
     app_id="rag-application",
@@ -27,31 +28,102 @@ inngest_client= inngest.Inngest(
 )
 
 async def rag_ingest_pdf(ctx: inngest.Context):
+
     def _load(ctx: inngest.Context) -> RAGChunkAndSrc:
+
         pdf_path=ctx.event.data["pdf_path"]
+
         source_id=ctx.event.data.get("source_id",pdf_path)
+
         chunks=load_and_chunk_pdf(pdf_path)
+
         return RAGChunkAndSrc(chunks=chunks,source_id=source_id)
 
 
-    def _upsert(chunks_and_src: RAGChunkAndSrc) -> RAGUpsertResults:
+    def _upsert(
+            chunks_and_src: RAGChunkAndSrc
+    ) -> RAGUpsertResults:
+
         chunks=chunks_and_src.chunks
+
         source_id=chunks_and_src.source_id
+
         vecs=embed_texts(chunks)
-        ids=[str(uuid.uuid5(uuid.NAMESPACE_URL,f"{source_id}:{i}")) for i in range(len(chunks))]
-        payload=[{"source": source_id, "text": chunks[i]} for i in range(len(chunks))]
-        VectorDB().upsert(ids, vecs, payload)
+
+        ids=[
+            str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"{source_id}:{i}"
+                )
+            )
+            for i in range(len(chunks))
+        ]
+
+        payloads=[{"source": source_id, "text": chunks[i]} for i in range(len(chunks))]
+
+        VectorDB().upsert(ids, vecs, payloads)
+
         return RAGUpsertResults(ingested=len(chunks))
 
     chunks_and_src= await ctx.step.run("load-and-chunk",lambda: _load(ctx),output_type=RAGChunkAndSrc)
-    ingested=await ctx.step.run("ingest",lambda: _upsert(chunks_and_src),output_type=RAGUpsertResults)
+
+    ingested=await ctx.step.run("embed-and-store",lambda: _upsert(chunks_and_src),output_type=RAGUpsertResults)
+
     return ingested.model_dump()
 
+@inngest_client.create_function(
+    fn_id="RAG: Query PDF",
+    trigger=inngest.TriggerEvent(event="rag/query_pdf_ai")
 
+)
+async def rag_query_pdf(ctx: inngest.Context):
 
+    def _search(question:str,top_k:int=5) -> RAGSearchResults:
+        query_vec=embed_texts([question])[0]
+        store=VectorDB()
+        found = store.search(query_vec,top_k)
+        return RAGSearchResults(contexts=found["context"],source=found["source"])
+
+    question=ctx.event.data["question"]
+    top_k=int(ctx.event.data.get("top_k",5))
+
+    found=await ctx.step.run("embed-and-search",lambda: _search(question,top_k),output_type=RAGSearchResults)
+
+    if not found.contexts:
+        return {
+            "answer": "No relevant context found.",
+            "source": [],
+            "num_contexts": 0
+        }
+
+    context_block = "\n\n".join(found.contexts)
+    user_content=(
+        "Use the following context to answer the question.\n\n"
+        f"Context:\n{context_block}\n\n"
+        f"Question: {question}\n"
+        "Answer concisely using the context above."
+    )
+
+    response = ollama.chat(
+        model="llama3",
+        messages=[
+            {
+                "role": "system",
+                "content": "Answer only using provided context."
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
+    )
+
+    answer = response["message"]["content"]
+    return {"answer":answer,"source":found.source,"num_contexts":len(found.contexts)}
 
 app = FastAPI()
 
 
 # // endpoint
-inngest.fast_api.serve(app,inngest_client,[rag_ingest_pdf])
+inngest.fast_api.serve(app,inngest_client,[rag_ingest_pdf,rag_query_pdf])
